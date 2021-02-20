@@ -15,8 +15,8 @@ BMM150 bmm = BMM150();
 bmm150_mag_data value_offset;
 Adafruit_BMP280 bme;
 
-const char* ssid       = "Teddylove1230";
-const char* password   = "Teddylove1230";
+const char* ssid       = "Your network name";
+const char* password   = "Your network password";
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 18000; 
 const int   daylightOffset_sec = 0700; 
