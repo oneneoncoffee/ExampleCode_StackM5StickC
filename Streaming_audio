@@ -1,0 +1,319 @@
+// Soma FM / MP3 stream player 
+// for the Stack M5StickC device very back outline. 
+
+#ifndef _TFTTERMINAL_H_
+#define _TFTTERMINAL_H_
+
+#include <M5StickC.h>
+#include <Print.h>
+
+class TFTTerminal : public Print
+{
+private:
+    TFT_eSprite *disptr;
+    char discharbuff[60][55];
+    uint32_t xpos = 0,ypos = 0, dispos = 0;
+    TFT_eSprite* _dis_buff_ptr = NULL;
+    uint16_t _bkcolor = TFT_BLACK;
+    uint16_t _color = TFT_GREEN;
+
+    uint16_t _win_x_pos = 0,_win_y_pos = 0,_win_w = 160,_win_h = 80;
+    uint16_t _font_x_size = 6,_font_y_size = 8;
+    uint16_t _line_x_limit = 53,_line_y_limit = 30;
+
+public:
+    TFTTerminal(TFT_eSprite *dis_buff_ptr);
+    ~TFTTerminal();
+    
+    void setcolor( uint16_t color, uint16_t bk_color );
+    void setGeometry(uint16_t x, uint16_t y, uint16_t w, uint16_t h );
+    void setFontsize(uint8_t size);
+
+    size_t write(uint8_t) ;
+   size_t write(const uint8_t *buffer, size_t size);
+};
+
+#endif
+
+#include <M5StickC.h>
+#include <WiFi.h>
+#include <spiram-fast.h>
+#include <AudioGeneratorMP3.h>
+#include <AudioOutputI2S.h>
+#include <AudioOutputI2SNoDAC.h>
+#include <AudioFileSource.h>
+#include <AudioFileSourceBuffer.h>
+#include <AudioFileSourceICYStream.h>
+char * arrayURL[5] = {
+  "http://ice4.somafm.com/dubstep-128-mp3",
+  "http://ice6.somafm.com/spacestation-128-mp3",
+  "http://ice2.somafm.com/dronezone-128-mp3",
+  "http://ice4.somafm.com/poptron-128-mp3",
+  "http://ice6.somafm.com/synphaera-128-mp3"
+};
+String arrayStation[5] = {
+  "Dubstep",
+  "SomaFM",
+  "Dronezone",
+  "Poptron",
+  "Synphaera"
+};
+
+const char *password = "Password";
+const char *ssid = "mywifinetwork";
+const int bufferSize = 64 * 1024;
+const int numCh = sizeof(arrayURL)/sizeof(char *);
+const int LED = 10;
+const int BTNA = 37;
+const int BTNB = 39;
+
+TFT_eSprite Disbuff = TFT_eSprite(&M5.Lcd);
+AudioGeneratorMP3 *mp3;
+AudioFileSourceICYStream *file;
+AudioFileSourceBuffer *buff;
+AudioOutputI2S *out;
+
+bool TestMode = false;
+uint32_t LastTime = 0;
+int playflag = 0;
+int ledflag = 0;
+float fgain = 1.0;
+int sflag = 0;
+char *URL = arrayURL[sflag]; 
+String station = arrayStation[sflag];
+
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(LED, OUTPUT);
+  digitalWrite(LED , HIGH);
+  pinMode(BTNA, INPUT);
+  pinMode(BTNB, INPUT);
+
+  M5.begin();
+  M5.Lcd.setRotation(3);
+
+  Disbuff.createSprite(160, 80);
+  Disbuff.fillRect(0,0,160,80,Disbuff.color565(10,10,10));
+  Disbuff.pushSprite(0,0);
+  delay(500);
+  M5.Axp.ScreenBreath(12);
+
+  Disbuff.fillRect(0,0,160,80,TFT_BLACK);
+  Disbuff.setTextSize(2);
+  Disbuff.drawString("SomaFM  ", 0, 0, 1);
+  Disbuff.drawString("    WebRadio", 0, 35, 1);
+  Disbuff.pushSprite(0, 0);
+  M5.update();
+  M5.Lcd.fillScreen(BLACK);
+  M5.Lcd.setTextSize(2);
+  M5.Lcd.println("SomaFM  ");
+  M5.Lcd.println("    WebRadio");
+  delay(1000);
+  M5.Lcd.println("WiFi");
+  M5.Lcd.println("  Connecting");
+  initwifi();
+  M5.Lcd.fillScreen(BLACK);
+  M5.Lcd.setTextSize(1);
+  M5.Lcd.setCursor(0, 0, 2);
+  M5.Lcd.print("Ready");
+  M5.Lcd.setTextSize(1);
+  M5.Lcd.setCursor(0, 30, 2);
+  M5.Lcd.print("Ch ");
+  M5.Lcd.print(sflag + 1);
+  M5.Lcd.print(" - ");
+  M5.Lcd.print(station);
+  M5.Lcd.print("          ");
+  Serial.printf("STATUS(System) Ready \n\n");
+}
+void loop() {
+  static int lastms = 0;
+  if (playflag == 0) {
+    if (digitalRead(BTNA) ==  LOW) {
+      StartPlaying();
+      playflag = 1;
+      M5.Lcd.setTextSize(1);
+      M5.Lcd.setCursor(0, 0, 2);
+      M5.Lcd.print("Playing");
+    }
+
+    if (digitalRead(BTNB) ==  LOW) {
+      sflag = (sflag + 1) % numCh;
+      URL = arrayURL[sflag];
+      station = arrayStation[sflag];           
+      M5.Lcd.fillScreen(BLACK);
+      M5.Lcd.setTextSize(1);
+      M5.Lcd.setCursor(0, 30, 2);
+      M5.Lcd.print("Ch ");
+      M5.Lcd.print(sflag + 1);
+      M5.Lcd.print(station);
+      M5.Lcd.print("          ");
+    delay (200);
+    }
+  }
+
+  if (playflag == 1) {
+    if (mp3->isRunning()) {
+      if (millis() - lastms > 1000) {
+        lastms = millis();
+        Serial.printf("STATUS(Streaming) %d ms...\n", lastms);
+        ledflag = ledflag + 1;
+        if (ledflag > 1) {
+          ledflag = 0;
+          digitalWrite(LED , HIGH);
+        } else {
+          digitalWrite(LED , LOW);
+        }
+      }
+      if (!mp3->loop()) mp3->stop();
+    } else {
+      Serial.printf("MP3 done\n");
+      playflag = 0;
+      digitalWrite(LED , HIGH);
+      M5.Lcd.setTextSize(1);
+      M5.Lcd.setCursor(0, 0, 2);
+      M5.Lcd.print("Stop     ");
+    }
+    if (digitalRead(BTNA) ==  LOW) {
+      StopPlaying();
+      playflag = 0;
+      digitalWrite(LED , HIGH);
+      M5.Lcd.setTextSize(1);
+      M5.Lcd.setCursor(0, 0, 2);
+      M5.Lcd.print("Stop     ");
+      M5.Lcd.fillRect(109, 0, 160, 21, BLACK);
+      delay(200);
+    }
+    if (digitalRead(BTNB) ==  LOW) {
+      fgain = fgain + 1.0;
+      if (fgain > 10.0) {
+        fgain = 2.0;
+      }
+      out->SetGain(fgain*0.05);
+      M5.Lcd.fillRect(109, 0, 160, 21, BLACK); // volume sprite clear past image.
+      int iteration = 0;
+      int max_iteration = 4;
+      int color = rainbow((4*iteration+64)%128);
+      M5.Lcd.fillTriangle(109, 20, 109 + (5 * fgain), 20, 109 + (5 * fgain), 20 - (2 * fgain), color);
+      Serial.printf("STATUS(Gain) %f \n", fgain*0.05);
+      delay(200);
+    }
+  }
+}
+
+void StartPlaying() {
+  file = new AudioFileSourceICYStream(URL);
+  file->RegisterMetadataCB(MDCallback, (void*)"ICY");
+  buff = new AudioFileSourceBuffer(file, bufferSize);
+  buff->RegisterStatusCB(StatusCallback, (void*)"buffer");
+  out = new AudioOutputI2S(0, 1); 
+  out->SetOutputModeMono(false);
+  out->SetGain(fgain*0.05);
+  int iteration = 0;
+  int max_iteration = 4;
+  int color = rainbow((4*iteration+64)%128);
+  M5.Lcd.fillTriangle(109, 20, 109 + (5 * fgain), 20, 109 + (5 * fgain), 20 - (2 * fgain), color);
+  mp3 = new AudioGeneratorMP3();
+  mp3->RegisterStatusCB(StatusCallback, (void*)"mp3");
+  mp3->begin(buff, out);
+  Serial.printf("STATUS URL [%s] \n", URL);
+  Serial.flush();
+}
+
+void StopPlaying() {
+  if (mp3) {
+    mp3->stop();
+    delete mp3;
+    mp3 = NULL;
+  }
+  if (buff) {
+    buff->close();
+    delete buff;
+    buff = NULL;
+  }
+  if (file) {
+    file->close();
+    delete file;
+    file = NULL;
+  }
+  Serial.printf("STATUS(Stopped)\n");
+  Serial.flush();
+}
+
+void initwifi() {
+  WiFi.disconnect();
+  WiFi.softAPdisconnect(true);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  int i = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print("STATUS(Connecting to WiFi) ");
+    delay(1000);
+    i = i + 1;
+    if (i > 10) {
+      ESP.restart();
+    }
+  }
+  Serial.println("OK");
+}
+
+void MDCallback(void *cbData, const char *type, bool isUnicode, const char *string) {
+  const char *ptr = reinterpret_cast<const char *>(cbData);
+  (void) isUnicode; 
+  char s1[32], s2[64];
+  strncpy_P(s1, type, sizeof(s1));
+  s1[sizeof(s1) - 1] = 0;
+  strncpy_P(s2, string, sizeof(s2));
+  s2[sizeof(s2) - 1] = 0;
+  Serial.printf("METADATA(%s) '%s' = '%s'\n", ptr, s1, s2);
+  M5.Lcd.setTextSize(1);
+  M5.Lcd.setCursor(0, 45, 2);
+  M5.Lcd.print(s2);
+  M5.Lcd.print("                                                                                          ");
+  Serial.flush();
+}
+
+void StatusCallback(void *cbData, int code, const char *string) {
+  const char *ptr = reinterpret_cast<const char *>(cbData);
+  char s1[64];
+  strncpy_P(s1, string, sizeof(s1));
+  s1[sizeof(s1) - 1] = 0;
+  Serial.printf("STATUS(%s) '%d' = '%s'\n", ptr, code, s1);
+  Serial.flush();
+}
+
+unsigned int rainbow(int value)
+{
+  byte red = 0;  
+  byte green = 0;
+  byte blue = 0; 
+
+  byte quadrant = value / 32;
+
+  if (quadrant == 0) {
+    blue = 31;
+    green = 2 * (value % 32);
+    red = 0;
+  }
+  if (quadrant == 1) {
+    blue = 31 - (value % 32);
+    green = 63;
+    red = 0;
+  }
+  if (quadrant == 2) {
+    blue = 0;
+    green = 63;
+    red = value % 32;
+  }
+  if (quadrant == 3) {
+    blue = 0;
+    green = 63 - 2 * (value % 32);
+    red = 31;
+  }
+  if (quadrant == 4) {
+    blue = 70 - 3 * (value % 32);
+    red = random(50);
+    green = 0;
+  }
+  return (red << random(10)) + (green << random(10)) + (blue << random(10));
+}
