@@ -35,8 +35,8 @@
 #include <M5StickC.h> 
 #include <WiFi.h> 
 #include "Timex.h"
-const char* ssid = "Teddylove1230";
-const char* password = "Teddylove1230";
+const char* ssid = "My Network";
+const char* password = "password1234";
 char* server = "0.north-america.pool.ntp.org";
 int timezone = -21600; 
 int tcount = 170; 
