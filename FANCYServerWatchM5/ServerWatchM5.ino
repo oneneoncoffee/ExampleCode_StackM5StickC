@@ -99,7 +99,7 @@ void background() {
       float xx = 0.0;
       float yy = 0.0;
       int iteration = 0;
-      int max_iteration = 78;
+      int max_iteration = 30;
       while ( ((xx * xx + yy * yy) < 4)  &&  (iteration < max_iteration) )
       {
         float xtemp = xx * xx - yy * yy + x0;
