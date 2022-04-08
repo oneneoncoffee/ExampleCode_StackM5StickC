@@ -1,0 +1,72 @@
+#include <M5StickC.h>
+#include <Update.h>
+#include <SPI.h> 
+#include <WiFi.h> 
+int last_a_value = 0;
+int current_a_value = 0; 
+int last_b_value = 0;
+int current_b_value =0;
+
+// define buttons 
+#define button_A 37
+#define button_B 39
+
+void setup() {
+M5.begin(); 
+M5.Lcd.setRotation(3); 
+//pinMode(button_A, INPUT); 
+//pinMode(button_B, INPUT); 
+
+}
+
+void loop() {
+//  current_a_value = digitalRead(button_A);
+//  current_b_value = digitalRead(button_B);
+//  if(current_a_value != last_a_value) {
+//   if(current_a_value==0) {
+//    M5.Lcd.setCursor(1,1);  
+//    M5.Lcd.println("Button A Pressed"); 
+//    delay(500); 
+//    } else {
+//      M5.Lcd.setCursor(1,1);
+//      M5.Lcd.println("Button A");
+//    }
+//    last_a_value = current_a_value; 
+//  }
+//  if(current_b_value != last_b_value) {
+//    if(current_b_value==0) {
+//    M5.Lcd.setCursor(1,70); 
+//    M5.Lcd.println("Button B Pressed"); 
+//    delay(500);     
+//    } else {
+//      M5.Lcd.setCursor(1,70); 
+//      M5.Lcd.println("Button B");
+//    }
+//   last_b_value = current_b_value; 
+//  }
+//  delay(200); 
+//  M5.Lcd.fillScreen(BLACK); 
+//  if (M5.BtnA.wasPressed()) {
+//    M5.Lcd.setCursor(1,70); 
+//    M5.Lcd.println("Button A Pressed"); 
+//    delay(500);
+// }
+M5.update();
+M5.Lcd.setTextColor(WHITE, BLACK);
+  if (M5.BtnB.wasPressed()) {
+    M5.Lcd.setCursor(1,70); 
+    M5.Lcd.println("Button B Pressed"); 
+    delay(500); 
+  }
+  if (M5.BtnA.pressedFor(3000)) {
+        M5.Lcd.setCursor(1,70); 
+    M5.Lcd.println("Button A Pressed for 3000"); 
+    delay(500);
+  }
+  if (M5.BtnB.pressedFor(2000)) {
+        M5.Lcd.setCursor(1,70); 
+    M5.Lcd.println("Button B Pressed for 2000"); 
+    delay(500);
+  }
+    M5.Lcd.fillScreen(BLACK); 
+}
