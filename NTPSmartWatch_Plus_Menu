@@ -1,0 +1,445 @@
+// This is A basic example of A 2 button menu system for the M5 stick c device. 
+// Note this clock is 24 hour standard time.
+//
+// NTP server http://0.north-america.pool.ntp.org/   
+// https://www.ntppool.org/en/  
+// pool.ntp.org: public ntp time server for everyone.
+//  NTP server urls: 
+// http://0.north-america.pool.ntp.org/   
+// https://www.ntppool.org/en/  
+//
+// Timezone urls: 
+// https://www.timeanddate.com/  
+// https://en.wikipedia.org/wiki/List_of_UTC_time_offsets
+// So with much reading I found the following to be effective daylight offset in Sec = -7  (timezone maps are available on-line)  GMT offset = -25200       
+// https://en.wikipedia.org/wiki/List_of_UTC_time_offsets
+// pool.ntp.org: public ntp time server for everyone.
+// NTP is an internet protocol that’s used to synchronise the clocks on computer networks to within a few milliseconds of universal coordinated time (UTC). 
+// It enables devices to request and receive UTC from a server that, in turn, receives precise time from an atomic clock.
+// The pool.ntp.org project is a big virtual cluster of timeservers providing reliable easy to use NTP service for millions of clients.
+// The pool is being used by hundreds of millions of systems around the world. 
+// It's the default "time server" for most of the major Linux distributions and many networked appliances such as smart devices / internet of things etc.  
+// With a little luck and searching you will find the correct settings for your timezone. 
+//
+// How do I use the timezone map and find the GMT offset in milliseconds?
+// You need to adjust the UTC offset for your timezone in milliseconds. North America -700 to -600 
+// You can do so with this simple math trick:
+// UTC -7*60*60 = −25200      -7x60x60 = -25200
+//                            -6x60x60 = -21600
+// Daylight saving time? 
+// The website timeanddate.com is awesome for finding the current UTC/GMT offset.
+// And you can use this website to search by state anywhere in the world for timezone offsets.  
+// UTC -6*60*60 = -21600 
+//
+///////////
+
+#include <M5StickC.h>
+#include <SPI.h>
+#include <WiFi.h> 
+#include <Update.h>
+#define red_ledpin 10
+
+long loopTime, startTime = 0;
+uint8_t sleep_count = 0;
+
+RTC_TimeTypeDef RTC_TimeStruct;
+RTC_DateTypeDef RTC_DateStruct;
+
+const char* ssid = "myhomenetwork"; // Edit this information with your home network essid and password. 
+const char* password = "password";  // 
+char* server = "0.north-america.pool.ntp.org"; // north-america pool server. 
+
+int timezone = -21600;
+int tcount = 170; 
+bool timeToDo(int tbase) {
+  tcount++; 
+  if (tcount == tbase) {
+    tcount = 0; 
+    return true;
+  } else { return false; }
+}
+bool lcd = true; 
+unsigned long runTime = 0;
+float sx = 0, sy = 0;
+float temp2 = 0, temp = 0; 
+uint16_t x0 = 0, x1 = 0, yy0 = 0, yy1 = 0;
+
+#define DOT_SIZE 6
+int dot[6][6][2] {
+  {{35,35}},
+  {{15,15},{55,55}},
+  {{15,15},{35,35},{55,55}},
+  {{15,15},{15,55},{55,15},{55,55}},
+  {{15,15},{15,55},{35,35},{55,15},{55,55}},
+  {{15,15},{15,35},{15,55},{55,15},{55,35},{55,55}},
+  };
+
+float accX = 0;
+float accY = 0;
+float accZ = 0;
+const int BTNA = 39; // The BIG M5 button on top of device. 
+const int BTNB = 37; // The Small side button 
+int last_value = 0; 
+int current_value = 0; 
+int menuIndex = 0; 
+int menuCount = 5; 
+String menuTitle[] = {" Sync Watch"," Battery info", " Dice game", " TIME/DATE/TEMP", " EXIT"}; // Add one space to each tiem. 
+
+void draw_dice(int16_t x, int16_t y, int n) {
+
+  M5.Lcd.fillRect(x, y, 70, 70, random(0xFFFF)); //random dice color 
+
+  for(int d = 0; d < 6; d++) {
+    if (dot[n][d][0] > 0) {
+        M5.Lcd.fillCircle(x+dot[n][d][0], y+dot[n][d][1], DOT_SIZE, TFT_RED);
+    }
+  }  
+
+}
+
+void setup() {
+pinMode(red_ledpin, OUTPUT); 
+digitalWrite(red_ledpin, HIGH); 
+M5.begin();
+M5.Lcd.setRotation(3);
+M5.Lcd.fillScreen(BLACK);
+M5.IMU.Init();
+M5.MPU6886.Init(); 
+M5.Sh200Q.Init(); 
+main_menu(); 
+}
+
+void main_menu() {
+M5.Lcd.setCursor(2,2); 
+M5.Lcd.setTextSize(1); 
+M5.Lcd.setTextColor(WHITE, RED); 
+M5.Lcd.println(" WATCH MENU ");
+M5.Lcd.drawRect(1,1, 75, 9,WHITE); 
+M5.Lcd.setCursor(0, 4 * 3); 
+M5.Lcd.setTextColor(WHITE, BLACK); 
+for (int i=0; i < menuCount; i++) { 
+  M5.Lcd.printf("%s\n", menuTitle[i].c_str());  
+}
+ 
+M5.Lcd.setTextColor(GREEN, BLACK);
+M5.Lcd.setCursor(0, 80-16);
+M5.Lcd.println("BUTTON A: Mode"); 
+M5.Lcd.println("BUTTON B: Select");   
+}
+
+void menu_logic() {
+  M5.update(); 
+  M5.Lcd.setCursor(0, 4 * 3); 
+  for (int i=0; i<menuCount; i++){
+    if(menuIndex==i){
+      M5.Lcd.setTextColor(GREEN, BLACK);
+      M5.Lcd.println("*"); 
+      delay(10); 
+    } else {
+      M5.Lcd.setTextColor(BLACK, BLACK);
+      M5.Lcd.println(" ");
+      delay(10);   
+    }
+  }
+  current_value=digitalRead(BTNB); 
+  if(current_value != last_value) {
+    if(current_value==0) {
+      menuIndex++;
+      menuIndex=menuIndex % menuCount;
+      M5.Lcd.fillScreen(BLACK); 
+      delay(30);
+    }
+    last_value=current_value; 
+  }
+  current_value=digitalRead(BTNA);
+  if(current_value != last_value) {
+    if(current_value==0) {
+      switch(menuIndex) {
+        case 0:
+             timeSync(); 
+             break;
+        case 1:
+        M5.Lcd.fillScreen(BLACK);
+        M5.Lcd.setCursor(0, 0, 1);
+        M5.Lcd.setTextColor(RED, BLACK);
+        if(M5.Axp.GetWarningLevel() >= 1) {
+            M5.Lcd.setTextColor(RED, BLACK);
+            M5.Lcd.setCursor(20,20); 
+            M5.Lcd.drawRect(1,20, 150, 15, RED); 
+            M5.Lcd.printf(" Warning: low battery...");
+        }    
+        if(M5.Axp.GetWarningLevel() >= 0) {
+            M5.Lcd.setTextColor(GREEN, BLACK);
+            M5.Lcd.setCursor(20, 20); 
+            M5.Lcd.drawRect(1,20, 150, 15, GREEN); 
+            M5.Lcd.printf("[BATTERY POWER OK!]");
+        }
+        M5.Lcd.setCursor(35,35,1);         
+        M5.Lcd.setTextColor(RED,BLACK); 
+        M5.Lcd.printf("\n\nBattery Voltage:%.3fV\r\n", M5.Axp.GetBatVoltage());
+        M5.Lcd.printf("APS Voltage:%.3fV\r\n", M5.Axp.GetAPSVoltage());
+        M5.Lcd.setCursor(0,0); 
+        delay(1500); 
+        M5.Lcd.fillScreen(BLACK);      
+             break;
+        case 2:
+       M5.Lcd.fillScreen(BLACK);
+       M5.Lcd.fillScreen(TFT_BLACK); 
+       draw_dice(5,5,random(0,6));
+       draw_dice(85,5,random(0,6));
+       delay(2500); 
+       M5.Lcd.fillScreen(BLACK); 
+             break;  
+        case 3:
+        M5.Lcd.fillScreen(BLACK); 
+        M5.Lcd.setTextSize(3); 
+        M5.Rtc.GetTime(&RTC_TimeStruct); 
+        M5.Rtc.GetData(&RTC_DateStruct);
+        M5.Lcd.setTextColor(BLACK, RED);  
+        M5.Lcd.setCursor(11, 15);  
+        M5.Lcd.drawRect(8,10, 149, 30, WHITE); 
+        M5.Lcd.fillRect(10,13, 145, 22, RED);
+        M5.Lcd.printf("%2d:%2d.%2d\n",RTC_TimeStruct.Hours, RTC_TimeStruct.Minutes, RTC_TimeStruct.Seconds);
+        M5.Lcd.setCursor(27, 50);
+        M5.Lcd.setTextSize(2); 
+        M5.Lcd.setTextColor(BLACK, RED);     
+        M5.Lcd.drawRect(25, 48, 124, 20, WHITE); 
+        M5.Lcd.printf("%02d-%02d-%04d\n", RTC_DateStruct.Month, RTC_DateStruct.Date,  RTC_DateStruct.Year);  
+        delay(2500);
+        M5.Lcd.fillScreen(BLACK);    
+        M5.Lcd.fillScreen(BLACK); 
+        M5.Lcd.setCursor(1, 1); 
+        M5.Lcd.drawRect(1,6, 150, 30, WHITE);
+        M5.Lcd.fillRect(1,6, 149, 31, TFT_WHITE);  
+        M5.Lcd.fillRect(1,6, 145, 28, RED);
+        M5.Sh200Q.getTempData(&temp); 
+        M5.MPU6886.getTempData(&temp2); 
+        M5.Lcd.printf("Temperature:\n%.2f/%.2fC", temp, temp2);
+        delay(3500);
+        M5.Lcd.fillScreen(BLACK); 
+        break;  
+
+        case 4: 
+        sub_loop();   
+        break;        
+
+      }
+    }
+    last_value=current_value;
+  }
+  main_menu(); 
+}
+
+
+void display_time() {
+ if (timeToDo(1000)) {
+  M5.Lcd.setTextSize(3); 
+  M5.Rtc.GetTime(&RTC_TimeStruct); 
+  M5.Rtc.GetData(&RTC_DateStruct);
+  M5.Lcd.setTextColor(BLACK, RED);  
+  M5.Lcd.setCursor(11, 15);  
+  M5.Lcd.drawRect(8,10, 149, 30, WHITE); 
+  M5.Lcd.fillRect(10,13, 145, 22, RED);
+  M5.Lcd.printf("%2d:%2d.%2d\n",RTC_TimeStruct.Hours, RTC_TimeStruct.Minutes, RTC_TimeStruct.Seconds);
+  M5.Lcd.setCursor(27, 50);
+  M5.Lcd.setTextSize(2); 
+  M5.Lcd.setTextColor(BLACK, RED);     
+  M5.Lcd.drawRect(25, 48, 124, 20, WHITE); 
+  M5.Lcd.printf("%02d-%02d-%04d\n", RTC_DateStruct.Month, RTC_DateStruct.Date,  RTC_DateStruct.Year);  
+  delay(45);  
+ } 
+}
+
+void timeSync() {
+  M5.Lcd.fillScreen(BLACK); 
+  M5.Lcd.setCursor(1,1); 
+  M5.Lcd.setTextSize(1);
+  M5.Lcd.println("Connecting to network,"); 
+  M5.Lcd.printf("%s\n", ssid); 
+  delay(1500); 
+  M5.Lcd.fillScreen(BLACK); 
+  M5.Lcd.setCursor(20, 15); 
+  WiFi.begin(ssid, password); 
+  while(WiFi.status() != WL_CONNECTED) {
+    display_time(); 
+  }
+  M5.Lcd.setCursor(14, 15); 
+  M5.Lcd.fillScreen(BLACK); 
+  M5.Lcd.println("Connected to network."); 
+  delay(1000); 
+  M5.Lcd.fillScreen(BLACK); 
+  M5.Lcd.setCursor(20,15); 
+  configTime(timezone, 0, server);
+  struct tm timeInfo; 
+  if (getLocalTime(&timeInfo)) {
+   RTC_TimeTypeDef TimeStruct;
+      TimeStruct.Hours   = timeInfo.tm_hour;
+      TimeStruct.Minutes = timeInfo.tm_min;
+      TimeStruct.Seconds = timeInfo.tm_sec;
+      M5.Rtc.SetTime(&TimeStruct); 
+      RTC_DateTypeDef DateStruct;
+      DateStruct.WeekDay = timeInfo.tm_wday;
+      DateStruct.Month = timeInfo.tm_mon + 1;
+      DateStruct.Date = timeInfo.tm_mday;
+      DateStruct.Year = timeInfo.tm_year + 1900;
+      M5.Rtc.SetData(&DateStruct);
+      M5.Lcd.setCursor(20,15);
+      M5.Lcd.setTextSize(1); 
+      M5.Lcd.setTextColor(BLUE, BLACK);  
+      M5.Lcd.println("SYNC form Server to RTC device finished!"); 
+      delay(1500);
+      M5.Lcd.fillScreen(BLACK); 
+      M5.Lcd.setTextSize(2);
+      M5.Rtc.GetTime(&RTC_TimeStruct);
+      M5.Rtc.GetData(&RTC_DateStruct);
+      M5.Lcd.setCursor(27, 15);
+      M5.Lcd.setTextColor(RED,BLACK); 
+      M5.Lcd.printf("%02d:%02d:%02d\n", RTC_TimeStruct.Hours, RTC_TimeStruct.Minutes, RTC_TimeStruct.Seconds);
+      M5.Lcd.setCursor(27, 50);
+      M5.Lcd.setTextSize(1);
+      M5.Lcd.setTextColor(GREEN,BLACK); 
+      M5.Lcd.printf("Date: %04d-%02d-%02d\n", RTC_DateStruct.Year, RTC_DateStruct.Month, RTC_DateStruct.Date); 
+   delay(1500); 
+   M5.Lcd.fillScreen(BLACK);    
+  }
+}
+
+void loop() {    
+  loopTime = millis();
+  M5.update(); 
+  menu_logic(); 
+    if(startTime < (loopTime - 5000))
+    {
+        if(M5.Axp.GetWarningLevel())
+        {
+            sleep_count++;
+            M5.Lcd.setRotation(3); 
+            M5.Lcd.setTextSize(1); 
+            M5.Lcd.fillScreen(BLACK);
+            M5.Lcd.setCursor(0, 20, 2);
+            M5.Lcd.setTextColor(RED, BLACK);
+            M5.Lcd.drawRect(1,20, 150, 15, RED); 
+            M5.Lcd.printf(" Warning: low battery...");
+            delay(4555);
+            if(sleep_count >= 2)
+            {
+                sleep_count = 0;
+                M5.Axp.SetSleep();
+            }
+        }
+        else
+        {
+        M5.update(); 
+        menu_logic();   
+        }
+        startTime = loopTime;
+    }
+  if (M5.BtnA.pressedFor(3000)) {
+  if (lcd) {
+    M5.Lcd.writecommand(ST7735_DISPOFF);
+    M5.Axp.ScreenBreath(0);
+    M5.Axp.LightSleep(SLEEP_SEC(25));  
+    lcd = !lcd;   
+  } else {
+  M5.Lcd.writecommand(ST7735_DISPON); 
+  M5.Axp.ScreenBreath(255); 
+  lcd = !lcd;  
+  }
+  }
+  if (M5.BtnB.pressedFor(3000)) {
+  M5.Lcd.writecommand(ST7735_DISPOFF);
+  M5.Axp.ScreenBreath(0);  
+  M5.Axp.DeepSleep(SLEEP_SEC(20)); 
+  M5.Axp.PowerOff();   
+  }
+}
+
+void sub_loop() {
+int var = 0; 
+M5.Lcd.fillScreen(BLACK); 
+while(var < 35000) {   
+   int rz = random(560);
+  for (int px = 1; px < 320; px++)
+  {
+    for (int py = 0; py < 240; py++)
+    {
+      float x0 = (map(px, 0, rz, -250000/2, -242500/2)) / 100000.0; //scaled x coordinate of pixel (scaled to lie in the Mandelbrot X scale (-2.5, 1))
+      float yy0 = (map(py, 0,rz , -75000/4, -61000/4)) / 100000.0; //scaled y coordinate of pixel (scaled to lie in the Mandelbrot Y scale (-1, 1))
+      float xx = 0.0;
+      float yy = 0.0;
+      int iteration = 0;
+      int max_iteration = 132;
+      while ( ((xx * xx + yy * yy) < 4)  &&  (iteration < max_iteration) )
+      {
+        float xtemp = xx * xx - yy * yy + x0;
+        yy = 2 * xx * yy + yy0;
+        xx = xtemp;
+        iteration++;
+      } 
+      int color = rainbow((3*iteration+64)%128);
+      int color2 = rainbow((iteration)%132);
+      yield();    
+
+     //M5.Lcd.drawPixel(px,py, color);
+    //M5.Lcd.fillRect(px,py, py,px, color2);
+   //M5.Lcd.drawRect(py,px, py, px, 3*color);
+   
+      M5.Lcd.drawFastHLine(px,py, py, 5*color);
+    }
+  } 
+M5.Lcd.setTextSize(3); 
+M5.Rtc.GetTime(&RTC_TimeStruct); 
+M5.Rtc.GetData(&RTC_DateStruct);
+M5.Lcd.setTextColor(BLACK, RED);  
+M5.Lcd.setCursor(11, 15);  
+M5.Lcd.drawRect(8,10, 150, 30, WHITE);
+M5.Lcd.fillRect(8,10, 149, 35, TFT_WHITE);  
+M5.Lcd.fillRect(10,13, 145, 28, RED);
+M5.Lcd.printf("%2d:%2d.%2d\n",RTC_TimeStruct.Hours, RTC_TimeStruct.Minutes, RTC_TimeStruct.Seconds);
+M5.Lcd.setCursor(27, 50);
+M5.Lcd.setTextSize(2); 
+M5.Lcd.setTextColor(BLACK, RED);     
+M5.Lcd.drawRect(25, 48, 124, 20, WHITE); 
+M5.Lcd.printf("%02d-%02d-%04d\n", RTC_DateStruct.Month, RTC_DateStruct.Date,  RTC_DateStruct.Year);  
+delay(4000);
+var++; 
+}
+M5.Lcd.fillScreen(BLACK); 
+}
+
+unsigned int rainbow(int value)
+{
+  byte red = 0; 
+  byte green = 0;
+  byte blue = 0; 
+  
+  byte quadrant = value / 32;
+
+  if (quadrant == 0) {
+    blue = 31;
+    green = 2 * (value % 32);
+    red = 0;
+  }
+  if (quadrant == 1) {
+    blue = 31 - (value % 32);
+    green = 63;
+    red = 0;
+  }
+  if (quadrant == 2) {
+    blue = 0;
+    green = 63;
+    red = 63 * value % 32;
+  }
+  if (quadrant == 3) {
+    blue = 0;
+    green = 63 - 2 * (value % 32);
+    red = 31;
+  }
+  if (quadrant == 4) {
+    blue = 70 - 3 * (value % 32);
+    red = random(1,50);
+    green = 0;
+  }
+  randomSeed(red+blue+green);
+  return (red << 11) + (green << 5) + (blue << 8) +blue;
+}
